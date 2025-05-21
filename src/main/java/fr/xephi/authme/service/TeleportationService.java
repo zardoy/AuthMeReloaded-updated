@@ -29,7 +29,7 @@ import static fr.xephi.authme.settings.properties.RestrictionSettings.TELEPORT_U
  * Handles teleportation (placement of player to spawn).
  */
 public class TeleportationService implements Reloadable {
-    
+
     private final ConsoleLogger logger = ConsoleLoggerFactory.get(TeleportationService.class);
 
     @Inject
@@ -66,7 +66,14 @@ public class TeleportationService implements Reloadable {
      */
     public void teleportOnJoin(final Player player) {
         if (!settings.getProperty(RestrictionSettings.NO_TELEPORT)
-            && settings.getProperty(TELEPORT_UNAUTHED_TO_SPAWN)) {
+            && settings.getProperty(TELEPORT_UNAUTHED_TO_SPAWN)
+            && dataSource.isAuthAvailable(player.getName())) {  // Only teleport if player is registered
+            // Check if player has saved quit location before teleporting to spawn
+            PlayerAuth auth = dataSource.getAuth(player.getName());
+            if (auth != null && hasValidQuitLocation(auth)) {
+                logger.debug("Not teleporting `{0}` to spawn as they have a valid quit location", player.getName());
+                return;
+            }
             logger.debug("Teleport on join for player `{0}`", player.getName());
             teleportToSpawn(player, playerCache.isAuthenticated(player.getName()));
         }
@@ -140,13 +147,19 @@ public class TeleportationService implements Reloadable {
             logger.debug("Teleporting `{0}` to spawn because of 'force-spawn after login'", player.getName());
             teleportToSpawn(player, true);
         } else if (settings.getProperty(TELEPORT_UNAUTHED_TO_SPAWN)) {
-            if (settings.getProperty(RestrictionSettings.SAVE_QUIT_LOCATION)) {
+            if (settings.getProperty(RestrictionSettings.SAVE_QUIT_LOCATION) && hasValidQuitLocation(auth)) {
                 Location location = buildLocationFromAuth(player, auth);
                 logger.debug("Teleporting `{0}` after login, based on the player auth", player.getName());
                 teleportBackFromSpawn(player, location);
             } else if (limbo != null && limbo.getLocation() != null) {
-                logger.debug("Teleporting `{0}` after login, based on the limbo player", player.getName());
-                teleportBackFromSpawn(player, limbo.getLocation());
+                // Only teleport back if the limbo location is different from spawn
+                Location spawnLoc = spawnLoader.getSpawnLocation(player);
+                if (!isSameLocation(limbo.getLocation(), spawnLoc)) {
+                    logger.debug("Teleporting `{0}` after login, based on the limbo player", player.getName());
+                    teleportBackFromSpawn(player, limbo.getLocation());
+                } else {
+                    logger.debug("Not teleporting `{0}` as limbo location is same as spawn", player.getName());
+                }
             }
         }
     }
@@ -192,5 +205,36 @@ public class TeleportationService implements Reloadable {
 
     private static boolean isEventValid(AbstractTeleportEvent event) {
         return !event.isCancelled() && event.getTo() != null && event.getTo().getWorld() != null;
+    }
+
+    /**
+     * Checks if two locations are effectively the same (same world and coordinates)
+     *
+     * @param loc1 first location
+     * @param loc2 second location
+     * @return true if locations are the same
+     */
+    private boolean isSameLocation(Location loc1, Location loc2) {
+        if (loc1 == null || loc2 == null) {
+            return false;
+        }
+        return loc1.getWorld().equals(loc2.getWorld())
+            && Math.abs(loc1.getX() - loc2.getX()) < 0.1
+            && Math.abs(loc1.getY() - loc2.getY()) < 0.1
+            && Math.abs(loc1.getZ() - loc2.getZ()) < 0.1;
+    }
+
+    /**
+     * Checks if the player has a valid quit location saved.
+     *
+     * @param auth the PlayerAuth to check
+     * @return true if the player has a valid quit location
+     */
+    private boolean hasValidQuitLocation(PlayerAuth auth) {
+        if (auth == null) {
+            return false;
+        }
+        // Check if the location is not the default spawn location (0,0,0)
+        return auth.getQuitLocX() != 0 || auth.getQuitLocY() != 0 || auth.getQuitLocZ() != 0;
     }
 }
