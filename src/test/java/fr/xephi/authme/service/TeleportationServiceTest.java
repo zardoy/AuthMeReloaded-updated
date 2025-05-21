@@ -54,6 +54,9 @@ public class TeleportationServiceTest {
     @Mock
     private PlayerCache playerCache;
 
+    @Mock
+    private DataSource dataSource;
+
     @Before
     public void setUpForcedWorlds() {
         given(settings.getProperty(RestrictionSettings.FORCE_SPAWN_ON_WORLDS))
